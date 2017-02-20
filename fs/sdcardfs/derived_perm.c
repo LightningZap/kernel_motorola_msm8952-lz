@@ -103,7 +103,7 @@ void get_derived_permission_new(struct dentry *parent, struct dentry *dentry, st
 		case PERM_ANDROID_OBB:
 		case PERM_ANDROID_MEDIA:
 			appid = get_appid(newdentry->d_name.name);
-			if (appid != 0 && !is_excluded(newdentry->d_name.name, parent_info->userid)) {
+			if (appid != 0) {
 				info->d_uid = multiuser_get_uid(parent_info->userid, appid);
 			}
 			set_top(info, &info->vfs_inode);
