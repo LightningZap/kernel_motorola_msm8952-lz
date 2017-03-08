@@ -22,6 +22,7 @@
 #include <linux/hashtable.h>
 #include <linux/delay.h>
 
+
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/slab.h>
@@ -264,10 +265,8 @@ static ssize_t package_appid_attr_store(struct config_item *item,
 	if (ret)
 		return ret;
 
-static struct configfs_attribute *package_appid_attrs[] = {
-	&package_appid_attr_add_pid,
-	NULL,
-};
+	return count;
+}
 
 static void package_appid_release(struct config_item *item)
 {
@@ -390,6 +389,7 @@ static int configfs_sdcardfs_init(void)
 {
 	int ret;
 	struct configfs_subsystem *subsys = &sdcardfs_packages_subsys;
+
 	config_group_init(&subsys->su_group);
 	mutex_init(&subsys->su_mutex);
 	ret = configfs_register_subsystem(subsys);
