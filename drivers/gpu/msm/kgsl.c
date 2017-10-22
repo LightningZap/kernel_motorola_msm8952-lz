@@ -1,4 +1,4 @@
-/* Copyright (c) 2008-2016, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2008-2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -230,8 +230,11 @@ kgsl_mem_entry_create(void)
 {
 	struct kgsl_mem_entry *entry = kzalloc(sizeof(*entry), GFP_KERNEL);
 
-	if (entry)
+	if (entry) {
 		kref_init(&entry->refcount);
+		/* put this ref in the caller functions after init */
+		kref_get(&entry->refcount);
+	}
 
 	return entry;
 }
@@ -1808,9 +1811,9 @@ long kgsl_ioctl_drawctxt_create(struct kgsl_device_private *dev_priv,
 	/* Commit the pointer to the context in context_idr */
 	write_lock(&device->context_lock);
 	idr_replace(&device->context_idr, context, context->id);
+	param->drawctxt_id = context->id;
 	write_unlock(&device->context_lock);
 
-	param->drawctxt_id = context->id;
 done:
 	return result;
 }
@@ -2421,6 +2424,9 @@ long kgsl_ioctl_gpuobj_import(struct kgsl_device_private *dev_priv,
 	trace_kgsl_mem_map(entry, fd);
 
 	kgsl_mem_entry_commit_process(private, entry);
+
+	/* put the extra refcount for kgsl_mem_entry_create() */
+	kgsl_mem_entry_put(entry);
 	return 0;
 
 unmap:
@@ -2693,6 +2699,9 @@ long kgsl_ioctl_map_user_mem(struct kgsl_device_private *dev_priv,
 	trace_kgsl_mem_map(entry, param->fd);
 
 	kgsl_mem_entry_commit_process(private, entry);
+
+	/* put the extra refcount for kgsl_mem_entry_create() */
+	kgsl_mem_entry_put(entry);
 	return result;
 
 error_attach:
@@ -3133,6 +3142,9 @@ long kgsl_ioctl_gpuobj_alloc(struct kgsl_device_private *dev_priv,
 	param->mmapsize = kgsl_memdesc_mmapsize(&entry->memdesc);
 	param->id = entry->id;
 
+	/* put the extra refcount for kgsl_mem_entry_create() */
+	kgsl_mem_entry_put(entry);
+
 	return 0;
 }
 
@@ -3156,6 +3168,8 @@ long kgsl_ioctl_gpumem_alloc(struct kgsl_device_private *dev_priv,
 	param->size = (size_t) entry->memdesc.size;
 	param->flags = (unsigned int) entry->memdesc.flags;
 
+	/* put the extra refcount for kgsl_mem_entry_create() */
+	kgsl_mem_entry_put(entry);
 	return 0;
 }
 
@@ -3179,6 +3193,8 @@ long kgsl_ioctl_gpumem_alloc_id(struct kgsl_device_private *dev_priv,
 		kgsl_memdesc_mmapsize(&entry->memdesc);
 	param->gpuaddr = (unsigned long) entry->memdesc.gpuaddr;
 
+	/* put the extra refcount for kgsl_mem_entry_create() */
+	kgsl_mem_entry_put(entry);
 	return 0;
 }
 
@@ -4293,6 +4309,8 @@ static void kgsl_core_exit(void)
 static int __init kgsl_core_init(void)
 {
 	int result = 0;
+	struct sched_param param = { .sched_priority = 2 };
+
 	/* alloc major and minor device numbers */
 	result = alloc_chrdev_region(&kgsl_driver.major, 0, KGSL_DEVICE_MAX,
 		"kgsl");
@@ -4353,6 +4371,18 @@ static int __init kgsl_core_init(void)
 	INIT_LIST_HEAD(&kgsl_driver.pagetable_list);
 
 	kgsl_mmu_set_mmutype(ksgl_mmu_type);
+
+	init_kthread_worker(&kgsl_driver.worker);
+
+	kgsl_driver.worker_thread = kthread_run(kthread_worker_fn,
+		&kgsl_driver.worker, "kgsl_worker_thread");
+
+	if (IS_ERR(kgsl_driver.worker_thread)) {
+		pr_err("unable to start kgsl thread\n");
+		goto err;
+	}
+
+	sched_setscheduler(kgsl_driver.worker_thread, SCHED_FIFO, &param);
 
 	kgsl_events_init();
 
